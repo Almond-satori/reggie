@@ -6,6 +6,7 @@ import lombok.Data;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 
+//mybatis-plus中实体类自动和数据库中的表对应
 @Data
 public class Employee implements Serializable {
 

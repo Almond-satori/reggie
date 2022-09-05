@@ -1,87 +1,29 @@
-# 功能记录
+package com.almond.reggie.filter;
 
-## 1.Bean到controller
+import com.alibaba.fastjson.JSON;
+import com.almond.reggie.common.R;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.util.AntPathMatcher;
 
-```java
-@Data
-public class Employee implements Serializable {...}
-```
+import javax.servlet.*;
+import javax.servlet.annotation.WebFilter;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import java.io.IOException;
 
-```java
-@Mapper
-public interface EmployeeMapper extends BaseMapper<Employee> {
-}
-```
-
-```
-public interface EmployeeService extends IService<Employee> {
-}
-```
-
-```java
-@Service
-public class EmployeeServiceImpl extends ServiceImpl<EmployeeMapper, Employee> implements EmployeeService {
-}
-```
-
-```java
-@Slf4j
-@RestController
-@RequestMapping("/employee")
-public class EmployeeController {
-
-    @Autowired
-    private EmployeeService employeeService;
-}
-```
-
-
-
-> 注意:在backend,request.js中更改前端接收响应的时间,方便debug
-
-```
-    // 超时,运行为10000,debug时为1000000
-    timeout: 1000000
-```
-
-
-
-## 2.拦截未登录的请求
-
-防止用户在未登录的情况下访问到其他界面
-
-(1)框架
-
-```java
 //设置过滤器名字和拦截pattern,在main类中设置@ServletComponentScan进行组件扫描
 @WebFilter(filterName = "LoginFilter",urlPatterns = "/*")
 @Slf4j
 public class LoginFilter implements Filter {
-
-    @Override
-    public void doFilter(ServletRequest servletRequest, ServletResponse servletResponse, FilterChain filterChain) throws IOException, ServletException {
-        HttpServletRequest request = (HttpServletRequest) servletRequest;
-        log.info("拦截到请求{}",request.getRequestURL());
-        filterChain.doFilter(request,servletResponse);
-    }
-}
-```
-
-(2)逻辑
-
-```java
-//路径匹配器,支持通配符
+    //路径匹配器,支持通配符
     public static final AntPathMatcher PATH_MATCHER = new AntPathMatcher();
 
     @Override
     public void doFilter(ServletRequest servletRequest, ServletResponse servletResponse, FilterChain filterChain) throws IOException, ServletException {
         HttpServletRequest request = (HttpServletRequest) servletRequest;
         HttpServletResponse response = (HttpServletResponse)servletResponse;
-//        log.info("拦截到请求{}",request.getRequestURL());
         //1.获取本次请求的URI,这里URI(/employee/login)和URL(http://localhost:8080/backend/page/login/login.html)完全不同
         String requestURI = request.getRequestURI();
-//        log.info("Url:{}",request.getRequestURL());
-        log.info("URI{}",requestURI);
         //定义不需要处理的请求路径,登录登出不需要,静态页面也不需要(数据都是动态ajax向服务端的数据库请求的)
         String[] urls = new String[]{
             "/employee/login",
@@ -93,18 +35,15 @@ public class LoginFilter implements Filter {
         boolean check = checkURLs(urls, requestURI);
         if(check){
             filterChain.doFilter(request, response);
-            log.info("无需登录");
             return;//注意不要忘记返回
         }
         //3.若需要登录,就判断登录状态,如果登录了就放行
         if(request.getSession().getAttribute("employee") != null){
-            log.info("已经登录");
             filterChain.doFilter(request, response);
             return;//注意不要忘记返回
         }
         //4.未登录,则根据前端的要求(request.js),设置响应
         //以输出流响应前端
-        log.info("未登录");
         response.getWriter().write(JSON.toJSONString(R.error("NOTLOGIN")));
         return;
     }
@@ -123,19 +62,6 @@ public class LoginFilter implements Filter {
         }
         return false;
     }
-```
+    
 
-
-
-> 关于doFilter后要返回的问题:
->
->
-> 调用doFilter后,Filter链的下一个filter执行,如此知道全部filter执行完成,按照逆序(这一点跟springboot中的拦截器一样)返回到每个filter,执行他们后面的代码,所以是需要return的
-
-
-
-> 区分URI和URL:
->
-> URL:http://localhost:8080/backend/page/login/login.html (是浏览器上url栏的内容)
->
-> URI:/employee/login 向服务器发送的请求
+}

@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import javax.servlet.http.HttpServletRequest;
+import java.time.LocalDateTime;
 
 @Slf4j
 @RestController
@@ -56,5 +57,40 @@ public class EmployeeController {
         request.getSession().setAttribute("employee", emp.getId());
         return R.success(emp);
     }
+
+    /**
+     * 员工退出
+     * @param request
+     * @return 返回成功信息(在success方法中会设置code=1)
+     */
+    @PostMapping("/logout")
+    public R<String> logout(HttpServletRequest request){
+        //删除当前会话中的employee信息
+        request.getSession().removeAttribute("employee");
+        return R.success("退出成功");
+    }
+
+    /**
+     * 根据提交的表单,生成数据库记录,并初始化
+     * @param request
+     * @param employee
+     * @return
+     */
+    @PostMapping
+    public R<String> addEmployee(HttpServletRequest request,@RequestBody Employee employee){
+        log.info(employee.toString());
+        //设置初始密码123456,使用md5加密
+        employee.setPassword(DigestUtils.md5DigestAsHex("123456".getBytes()));
+        //设置创建时间和修改时间
+        employee.setCreateTime(LocalDateTime.now());
+        employee.setUpdateTime(LocalDateTime.now());
+        //获得当前登录用户的id以设置创建人
+        long creatorId = (long) request.getSession().getAttribute("employee");
+        employee.setCreateUser(creatorId);
+        employee.setUpdateUser(creatorId);
+        employeeService.save(employee);
+        return R.success("新员工添加成功");
+    }
+
 
 }
