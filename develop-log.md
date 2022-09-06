@@ -139,3 +139,220 @@ public class LoginFilter implements Filter {
 > URL:http://localhost:8080/backend/page/login/login.html (是浏览器上url栏的内容)
 >
 > URI:/employee/login 向服务器发送的请求
+
+
+
+## 3.增加用户
+
+```java
+/**
+ * 根据提交的表单,生成数据库记录,并初始化
+ * @param request
+ * @param employee
+ * @return
+ */
+@PostMapping
+public R<String> addEmployee(HttpServletRequest request,@RequestBody Employee employee){
+    log.info(employee.toString());
+    //设置初始密码123456,使用md5加密
+    employee.setPassword(DigestUtils.md5DigestAsHex("123456".getBytes()));
+    //设置创建时间和修改时间
+    employee.setCreateTime(LocalDateTime.now());
+    employee.setUpdateTime(LocalDateTime.now());
+    //获得当前登录用户的id以设置创建人
+    long creatorId = (long) request.getSession().getAttribute("employee");
+    employee.setCreateUser(creatorId);
+    employee.setUpdateUser(creatorId);
+    employeeService.save(employee);
+    return R.success("新员工添加成功");
+}
+```
+
+> 注意:这里在类上有注解@PostMapping("/employee"),不要在方法上重复这个路径
+
+如果插入重复的username,则会从mysql抛出一个异常,我们用全局异常类来处理
+
+
+
+## 4.全局异常类捕获增加用户的异常
+
+```java
+/**
+ * 全局异常处理类,方法返回响应体
+ */
+@ControllerAdvice(annotations = {RestController.class, Controller.class})
+@Slf4j
+@ResponseBody
+public class GlobalExceptionHandler {
+
+    @ExceptionHandler(SQLIntegrityConstraintViolationException.class)
+    public R<String> exceptionHandler(SQLIntegrityConstraintViolationException ex){
+//      error message:Duplicate entry '123456' for key 'idx_username'
+        String message = ex.getMessage();
+        if (message.contains("Duplicate entry")){
+            //按照" "将字符创分为小串
+            String[] split = message.split(" ");
+            String msg = "用户名" + split[2] + "已存在";
+            return R.error(msg);
+        }
+        return R.error("未知错误");
+    }
+}
+```
+
+
+
+> tips,使用ctrl+F5,清除缓存刷新
+
+
+
+## 5.分页功能
+
+首先配置mybatis-plus的分页插件,为此需要一个mybatis-plus的配置类
+
+```java
+/**
+ * 配置mybatisPlus中的分页插件
+ */
+@Configuration
+public class MybatisPlusConfig {
+    @Bean
+    public MybatisPlusInterceptor mybatisPlusInterceptor(){
+        MybatisPlusInterceptor mybatisPlusInterceptor = new MybatisPlusInterceptor();
+        mybatisPlusInterceptor.addInnerInterceptor(new PaginationInnerInterceptor());
+        return mybatisPlusInterceptor;
+    }
+}
+
+```
+
+ 在EmployeeController类中,捕获分页的请求
+
+```java
+/**
+     * 处理请求http://localhost:8080/employee/page?page=1&pageSize=10
+     * @return
+     */
+    @GetMapping("/page")
+    public R<Page> page(int page,int pageSize,String name){
+//        log.info("page:{},pageSize:{}",page,pageSize);
+        //1.构造分页对象
+        Page<Employee> employeePage = new Page<>(page,pageSize);
+        //2.构造查询条件
+        LambdaQueryWrapper<Employee> queryWrapper = new LambdaQueryWrapper<>();
+        //3.增加可能的过滤条件
+        //如果有指定name的查询,加上过滤条件
+        //参数0表示在name不为空时才进行该查询
+        queryWrapper.like(StringUtils.isNotEmpty(name),Employee::getName,name);
+        //4.查询结果排序
+        queryWrapper.orderByDesc(Employee::getUpdateTime);
+        //5.执行查询,employeeService会将数据放入我们传入的employeePage中
+        employeeService.page(employeePage,queryWrapper);
+        return R.success(employeePage);
+    }
+```
+
+## 6.员工管理中对员工执行update操作
+
+```java
+/**
+ * 对employee的修改请求(put,http://localhost:8080/employee)
+ * @param request
+ * @param employee 获取前端已经修改好的employee对象
+ * @return
+ */
+@PutMapping()
+public R<String> update(HttpServletRequest request,@RequestBody Employee employee){
+    long empId  = (long) request.getSession().getAttribute("employee");
+    employee.setUpdateTime(LocalDateTime.now());
+    employee.setUpdateUser(empId);//设置是编号为empId的用户修改了本用户
+    employeeService.updateById(employee);
+    return R.success("修改成功");
+}
+```
+
+> 这里会出现一个问题,我们在数据库中并没有找到要更新的记录,这是因为id过长,而在前端js对其进行了舍入,在Long长度大于17位时会出现精度丢失的问题.解决方法是从后端传入string给前端而不是long,为此需要消息转换器
+
+
+
+## 7.使用消息转换器
+
+如下消息转换器将转化java对象为json,这里将long转换为json
+
+```java
+/**
+ * 对象映射器:基于jackson将Java对象转为json，或者将json转为Java对象
+ * 将JSON解析为Java对象的过程称为 [从JSON反序列化Java对象]
+ * 从Java对象生成JSON的过程称为 [序列化Java对象到JSON]
+ */
+public class JacksonObjectMapper extends ObjectMapper {
+
+    public static final String DEFAULT_DATE_FORMAT = "yyyy-MM-dd";
+    public static final String DEFAULT_DATE_TIME_FORMAT = "yyyy-MM-dd HH:mm:ss";
+    public static final String DEFAULT_TIME_FORMAT = "HH:mm:ss";
+
+    public JacksonObjectMapper() {
+        super();
+        //收到未知属性时不报异常
+        this.configure(FAIL_ON_UNKNOWN_PROPERTIES, false);
+
+        //反序列化时，属性不存在的兼容处理
+        this.getDeserializationConfig().withoutFeatures(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+
+
+        SimpleModule simpleModule = new SimpleModule()
+                .addDeserializer(LocalDateTime.class, new LocalDateTimeDeserializer(DateTimeFormatter.ofPattern(DEFAULT_DATE_TIME_FORMAT)))
+                .addDeserializer(LocalDate.class, new LocalDateDeserializer(DateTimeFormatter.ofPattern(DEFAULT_DATE_FORMAT)))
+                .addDeserializer(LocalTime.class, new LocalTimeDeserializer(DateTimeFormatter.ofPattern(DEFAULT_TIME_FORMAT)))
+
+                .addSerializer(BigInteger.class, ToStringSerializer.instance)
+                .addSerializer(Long.class, ToStringSerializer.instance)
+                .addSerializer(LocalDateTime.class, new LocalDateTimeSerializer(DateTimeFormatter.ofPattern(DEFAULT_DATE_TIME_FORMAT)))
+                .addSerializer(LocalDate.class, new LocalDateSerializer(DateTimeFormatter.ofPattern(DEFAULT_DATE_FORMAT)))
+                .addSerializer(LocalTime.class, new LocalTimeSerializer(DateTimeFormatter.ofPattern(DEFAULT_TIME_FORMAT)));
+
+        //注册功能模块 例如，可以添加自定义序列化器和反序列化器
+        this.registerModule(simpleModule);
+    }
+}
+```
+
+在mvc配置类的消息转换器扩展方法中,加入这个消息转换器
+
+```java
+/**
+     * 扩展mvc中的消息转换器
+     * @param converters
+     */
+@Override
+protected void extendMessageConverters(List<HttpMessageConverter<?>> converters) {
+    log.info("扩展消息转换器");
+    //消息转换器会将我们return给前端的R对象转换为对应的json
+    //创建消息转换器对象
+    MappingJackson2HttpMessageConverter messageConverter =
+        new MappingJackson2HttpMessageConverter();
+    //设置对象转换器,使用我们自己定义的消息转换器对象
+    messageConverter.setObjectMapper(new JacksonObjectMapper());
+    //将我们设置的消息转换器放入mvc框架的转化器集合中(放在首位才会优先使用)
+    converters.add(0,messageConverter);
+}
+```
+
+## 8. 处理路径参数为员工id的查询请求
+
+```java
+    /**
+     * 处理按照id查询员工信息的请求(url为 /employee/id的值)
+     * @param id
+     * @return
+     */
+    @GetMapping("/{id}")
+    public R<Employee> getById(@PathVariable long id){
+//        log.info("id:{}",id);
+        Employee employee = employeeService.getById(id);
+        return R.success(employee);
+    }
+```
+
+
+

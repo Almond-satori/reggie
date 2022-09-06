@@ -4,13 +4,13 @@ import com.almond.reggie.Bean.Employee;
 import com.almond.reggie.common.R;
 import com.almond.reggie.service.EmployeeService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.util.DigestUtils;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.http.HttpServletRequest;
 import java.time.LocalDateTime;
@@ -92,5 +92,53 @@ public class EmployeeController {
         return R.success("新员工添加成功");
     }
 
+    /**
+     * 处理请求http://localhost:8080/employee/page?page=1&pageSize=10
+     * @return
+     */
+    @GetMapping("/page")
+    public R<Page> page(int page,int pageSize,String name){
+//        log.info("page:{},pageSize:{}",page,pageSize);
+        //1.构造分页对象
+        Page<Employee> employeePage = new Page<>(page,pageSize);
+        //2.构造查询条件
+        LambdaQueryWrapper<Employee> queryWrapper = new LambdaQueryWrapper<>();
+        //3.增加可能的过滤条件
+        //如果有指定name的查询,加上过滤条件
+        //参数0表示在name不为空时才进行该查询
+        queryWrapper.like(StringUtils.isNotEmpty(name),Employee::getName,name);
+        //4.查询结果排序
+        queryWrapper.orderByDesc(Employee::getUpdateTime);
+        //5.执行查询,employeeService会将数据放入我们传入的employeePage中
+        employeeService.page(employeePage,queryWrapper);
+        return R.success(employeePage);
+    }
+
+    /**
+     * 对employee的修改请求(put,http://localhost:8080/employee)
+     * @param request
+     * @param employee 获取前端已经修改好的employee对象
+     * @return
+     */
+    @PutMapping()
+    public R<String> update(HttpServletRequest request,@RequestBody Employee employee){
+        long empId  = (long) request.getSession().getAttribute("employee");
+        employee.setUpdateTime(LocalDateTime.now());
+        employee.setUpdateUser(empId);//设置是编号为empId的用户修改了本用户
+        employeeService.updateById(employee);
+        return R.success("修改成功");
+    }
+
+    /**
+     * 处理按照id查询员工信息的请求(url为 /employee/id的值)
+     * @param id
+     * @return
+     */
+    @GetMapping("/{id}")
+    public R<Employee> getById(@PathVariable long id){
+//        log.info("id:{}",id);
+        Employee employee = employeeService.getById(id);
+        return R.success(employee);
+    }
 
 }
