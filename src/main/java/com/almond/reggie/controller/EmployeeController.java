@@ -123,8 +123,8 @@ public class EmployeeController {
     @PutMapping()
     public R<String> update(HttpServletRequest request,@RequestBody Employee employee){
         long empId  = (long) request.getSession().getAttribute("employee");
-        employee.setUpdateTime(LocalDateTime.now());
-        employee.setUpdateUser(empId);//设置是编号为empId的用户修改了本用户
+//        employee.setUpdateTime(LocalDateTime.now());
+//        employee.setUpdateUser(empId);//设置是编号为empId的用户修改了本用户
         employeeService.updateById(employee);
         return R.success("修改成功");
     }

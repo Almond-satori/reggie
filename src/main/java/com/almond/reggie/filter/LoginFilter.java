@@ -1,6 +1,7 @@
 package com.almond.reggie.filter;
 
 import com.alibaba.fastjson.JSON;
+import com.almond.reggie.common.BaseContext;
 import com.almond.reggie.common.R;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.AntPathMatcher;
@@ -39,6 +40,9 @@ public class LoginFilter implements Filter {
         }
         //3.若需要登录,就判断登录状态,如果登录了就放行
         if(request.getSession().getAttribute("employee") != null){
+            //在线程作用域中存入登录用户id
+            long empId = (long) request.getSession().getAttribute("employee");
+            BaseContext.setCurrentId(empId);
             filterChain.doFilter(request, response);
             return;//注意不要忘记返回
         }

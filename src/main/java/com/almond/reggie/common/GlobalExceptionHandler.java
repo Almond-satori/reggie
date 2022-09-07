@@ -24,9 +24,20 @@ public class GlobalExceptionHandler {
         if (message.contains("Duplicate entry")){
             //按照" "将字符创分为小串 eg:split[0]==Duplicate
             String[] split = message.split(" ");
-            String msg = "用户名" + split[2] + "已存在";
+            //注意这里是全局的异常处理,在这里不能写本次的业务而是通用情况
+            String msg = split[2] + "已存在";
             return R.error(msg);
         }
         return R.error("未知错误");
+    }
+
+    /**
+     * 捕获自定义异常,返回给客户端
+     * @param ex
+     * @return
+     */
+    @ExceptionHandler(CustomException.class)
+    public R<String> customExceptionHandler(CustomException ex){
+        return R.error(ex.getMessage());
     }
 }

@@ -21,7 +21,7 @@ public interface EmployeeService extends IService<Employee> {
 ```java
 @Service
 public class EmployeeServiceImpl extends ServiceImpl<EmployeeMapper, Employee> implements EmployeeService {
-}
+} 
 ```
 
 ```java
@@ -356,3 +356,185 @@ protected void extendMessageConverters(List<HttpMessageConverter<?>> converters)
 
 
 
+## 9.统一处理不同表的相同字段
+
+问题:比如更新时间,创建时间等等字段,在employee表中有,在别的表也有,这会导致很多重复代码
+
+mybatis-plus框架提供了解决方法,统一对他们进行处理:
+
+1.在要处理的Bean类中加入注解
+
+```java
+	@TableField(fill = FieldFill.INSERT)//插入(即创建)时填充字段
+    private LocalDateTime createTime;
+
+    @TableField(fill = FieldFill.INSERT_UPDATE)//插入,更新都填充字段
+    private LocalDateTime updateTime;
+
+    @TableField(fill = FieldFill.INSERT)
+    private Long createUser;
+
+    @TableField(fill = FieldFill.INSERT_UPDATE)
+    private Long updateUser;
+```
+
+2.创建一个组件实现MetaObjectHandler接口
+
+```java
+@Component
+@Slf4j
+public class MyMetaObjectHandler implements MetaObjectHandler {
+
+    @Override
+    public void insertFill(MetaObject metaObject) {
+        log.info("insert时,进行公共字段填充");
+    }
+
+    @Override
+    public void updateFill(MetaObject metaObject) {
+        log.info("update时,进行公共字段填充");
+
+    }
+}
+```
+
+重写方法
+
+```java
+@Override
+public void insertFill(MetaObject metaObject) {
+    log.info("insert时,进行公共字段填充");
+    metaObject.setValue("createTime", LocalDateTime.now());
+    metaObject.setValue("updateTime", LocalDateTime.now());
+    //这里暂时写死
+    metaObject.setValue("updateUser", new Long(1));
+    metaObject.setValue("createUser", new Long(1));
+}
+
+@Override
+public void updateFill(MetaObject metaObject) {
+    log.info("update时,进行公共字段填充");
+
+    metaObject.setValue("updateTime", LocalDateTime.now());
+    //这里暂时写死
+    metaObject.setValue("updateUser", new Long(1));
+}
+```
+
+ 引入新问题,如何获得当前登录的empId?
+
+##  10.将登录id放入线程作用域
+
+1.创建使用线程域变量的工具类
+
+```java
+/**
+ * 基于ThreadLocal封装工具类,用户保存和获取当前登录用户的id
+ * 作用域在一个线程内
+ */
+public class BaseContext {
+    private static ThreadLocal<Long> threadLocal = new ThreadLocal<>();
+
+    public static void setCurrentId(Long id){
+        threadLocal.set(id);
+    }
+
+    public static Long getCurrentId(){
+        return threadLocal.get();
+    }
+}
+```
+
+2.过滤器中,登录成功情况下获取empId
+
+```java
+//在线程作用域中存入登录用户id
+long empId = (long) request.getSession().getAttribute("employee");
+BaseContext.setCurrentId(empId);
+```
+
+3.在统一处理界面将empId获取
+
+```java
+@Component
+@Slf4j
+public class MyMetaObjectHandler implements MetaObjectHandler {
+
+    @Override
+    public void insertFill(MetaObject metaObject) {
+//        log.info("insert时,进行公共字段填充");
+        metaObject.setValue("createTime", LocalDateTime.now());
+        metaObject.setValue("updateTime", LocalDateTime.now());
+        //通过线程域获取数据
+        Long currentId = BaseContext.getCurrentId();
+        metaObject.setValue("updateUser", currentId);
+        metaObject.setValue("createUser", currentId);
+
+    }
+
+    @Override
+    public void updateFill(MetaObject metaObject) {
+//        log.info("update时,进行公共字段填充");
+        metaObject.setValue("updateTime", LocalDateTime.now());
+        Long currentId = BaseContext.getCurrentId();
+        metaObject.setValue("updateUser", currentId);
+    }
+}
+```
+
+## 11.自定义业务异常
+
+自定义异常类:
+
+```java
+/**
+ * 自定义业务异常
+ */
+public class CustomException extends RuntimeException{
+    public CustomException(String message){
+        super(message);
+    }
+}
+```
+
+ 在全局异常处理类中:
+
+```java
+/**
+ * 捕获自定义异常,返回给客户端
+ * @param ex
+ * @return
+ */
+@ExceptionHandler(CustomException.class)
+public R<String> customExceptionHandler(CustomException ex){
+    return R.error(ex.getMessage());
+}
+```
+
+
+
+## 12. 文件上传/下载
+
+> tips:项目引入新界面时,在maven中使用clear package,以更新目录
+
+
+
+![image-20220907182724267](develop-log.assets/image-20220907182724267.png)
+
+```java
+@Slf4j
+@RestController
+@RequestMapping("/common")
+public class CommonController {
+    /**
+     * 捕获上传文件的请求
+     * @param file 跟请求中form-data中的name字段一致
+     * @return
+     */
+    @RequestMapping("/upload")
+    public R<String> upload(MultipartFile file){
+        log.info(file.toString());
+        return null;
+    }
+}
+```
