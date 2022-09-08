@@ -538,3 +538,125 @@ public class CommonController {
     }
 }
 ```
+
+
+
+## 13.添加菜品
+
+在`dish`表中加入菜品,并为菜品设置口味选项等消息,这些信息在`dish_favor`表中;
+
+1.提供Dish,DishFavor类到Service类,其中Dish需要提供Controller
+
+2.需要一个类来接收请求,因为post请求中有口味信息,**不能使用Dish简单地接收**,这里需要提供一个新的类,**继承了Dish,还包含了DishFavor**
+
+```java
+/**
+ * 数据传输对象,包含了Dish对象中没有的字段
+ */
+@Data
+public class DishDto extends Dish {
+
+    private List<DishFlavor> flavors = new ArrayList<>();
+
+    private String categoryName;
+
+    private Integer copies;
+}
+```
+
+3.在DishController类中接收请求,用DishDto接收json数据
+
+```java
+@PostMapping
+public R<String> save(@RequestBody DishDto dishDto){
+    log.info(dishDto.toString());
+    dishService.saveWithFlavor(dishDto); //稍后定义
+    return R.success("新增菜品成功");
+}
+```
+
+4.自定义方法saveWithFlavor
+
+**因为涉及了两张表的操作,这里在方法上引入事务,ReggieApplication类上标注@EnableTransactionManagement开启事务功能**
+
+```java
+public interface DishService extends IService<Dish> {
+    //在dish表存储dish,在dishFlavor表中存储flavor
+    public void saveWithFlavor(DishDto dishDto);
+}
+```
+
+```java
+@Service
+public class DishServiceImpl extends ServiceImpl<DishMapper, Dish> implements DishService {
+
+    @Autowired
+    DishFlavorService dishFlavorService;
+
+    /**
+     * 新增菜品,并将该菜品的口味信息(可能有多个)存储到对应表中
+     * @param dishDto 封装了菜品和口味的对象
+     */
+    @Override
+    @Transactional //涉及了多张表的操作,需要开启事务
+    public void saveWithFlavor(DishDto dishDto) {
+        this.save(dishDto);//当我们将新菜品存入数据库,根据雪花算法生成了id
+        //获取这个新生成的id
+        Long dishId = dishDto.getId();
+        //获取每个flavor,为其设置dishId
+        List<DishFlavor> flavors = dishDto.getFlavors();
+        for (DishFlavor flavor : flavors) {
+            flavor.setDishId(dishId);
+        }
+        //在数据库中存储所有flavor
+        dishFlavorService.saveBatch(flavors);
+    }
+}
+```
+
+
+
+
+
+tips:在查数据库可视化工具时如果发现没有数据,找下一页或者禁用限制行
+
+![image-20220908161920028](develop-log.assets/image-20220908161920028.png)
+
+
+
+## 14.对菜品的分页查询
+
+分页查询出菜品的各种信息,其中包含一个菜品种类的信息,在category表中
+
+思路:先查出Dish,再根据Dish的分页查询结果,再查询Category,将最终结果封装在DishDto的分页对象中
+
+```java
+@GetMapping("/page")
+public R<Page> page(int page,int pageSize,String name){
+    Page<Dish> pageInfo = new Page<>(page,pageSize);
+    //我们需要分类名称,而Dish没有,在DisDto中封装这个字段
+    Page<DishDto> dishDtoPage = new Page<>();
+    //1.Dish的分页查询
+    LambdaQueryWrapper<Dish> queryWrapper = new LambdaQueryWrapper<>();
+    queryWrapper.like(!StringUtils.isEmpty(name), Dish::getName,name);
+    queryWrapper.orderByDesc(Dish::getUpdateTime);
+    dishService.page(pageInfo, queryWrapper);
+    //2.根据已有的分页查询结果,查询出分类名称
+    //将分页数据中除了records的部分全部复制到dishDtoPage中
+    BeanUtils.copyProperties(pageInfo, dishDtoPage,"records");
+    //单独处理records
+    List<Dish> records = pageInfo.getRecords();
+    //通过流,将records每个item(Dish对象)和对categoryName的查询结果一起存入DishDto对象,并整理成list返回
+    List<DishDto> dishDtos = records.stream().map((item)->{
+        DishDto dishDto = new DishDto();
+        BeanUtils.copyProperties(item, dishDto);
+        Category category = categoryService.getById(dishDto.getCategoryId());
+        String categoryName = category.getName();
+        if (categoryName!=null) dishDto.setCategoryName(categoryName);
+        return dishDto;
+    }).collect(Collectors.toList());
+    //将新records放入新分页对象
+    dishDtoPage.setRecords(dishDtos);
+    return R.success(dishDtoPage);
+}
+```
